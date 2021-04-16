@@ -15,11 +15,13 @@ class App {
 
         // Clear the console
         console.clear();
+        console.log(options);
 
         this.ably = new Ably(options);
         this.ably.listen(this.onMessageRecieved);
         this.channels = [];
         this.askingQuestion = false;
+        this.lastRecievedMessage = null;
     }
 
     ask = async (question) => {
@@ -64,16 +66,35 @@ class App {
                     channel.detach();
                     break;
                 }
-                // Message
+                // Message (publish message)
                 case 'm': {
                     if (this.channels.length === 0) {
                         console.error('Not attached to any channels');
                         return;
                     }
+
                     const channelName = await this.ask({ type: 'list', name: 'channel', message: 'which channel would you like to publish to?', choices: this.channels.map(channel => channel.name)});
-                    const data = await this.ask({ type: 'input', name: 'data', message: `enter data to send to ${channelName}`});
+                    const string = await this.ask({ type: 'input', name: "data", message: `enter data to send to ${channelName}`});
                     const channel = this.channels.find(channel => channel.name === channelName);
+                    channel.publish(string);
+                    break;
+                }
+                // Message (re-play last message)
+                case 'r': {
+                    const string = this.lastRecievedMessage || null;
+                    if(!string) break;
+
+                    const channelName = await this.ask({ type: 'list', name: 'channel', message: 'which channel would you like to publish to?', choices: this.channels.map(channel => channel.name)});
+                    const channel = this.channels.find(channel => channel.name === channelName);
+                    const data = /^{/.test(string) ? JSON.parse(string) : string;
+
                     channel.publish(data);
+                    break;
+                }
+                // Message (event name)
+                case 'n': {
+                    const eventName = await this.ask({type: 'input', name: "event name", message: "enter default event name"});
+                    this.eventName = eventName || "data";
                     break;
                 }
                 // Enter presence
@@ -138,6 +159,7 @@ class App {
                 break;
             case 'MESSAGE':
                 message.messages.forEach(msg => {
+                    this.lastRecievedMessage = msg.data;
                     if (msg.clientId) {
                         this.logAction(' MESSAGE ', chalk.bgCyan.bold, `from ${chalk.blue(msg.clientId)} on ${chalk.magenta(message.channel)}: "${msg.data}"`);
                         return;
