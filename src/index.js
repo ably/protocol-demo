@@ -5,6 +5,7 @@ const App = require('./App');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const program = new Command();
+program.option('-k, --key <id>', 'key');
 program.option('-c, --clientId <id>', 'clientId');
 program.option('--heartbeats', 'heartbeats');
 program.parse();
