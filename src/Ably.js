@@ -1,22 +1,21 @@
-const WebSocket = require("ws");
-
-const getWsHost = (params) => {
-    let host = 'wss://realtime.ably.io?';
-    host += Object.entries(params).map(([key, value]) => `${key}=${value}`).join('&');
-    return host;
-}
+const WebSocket = require('ws');
 
 class Ably {
     constructor(options) {
-        this.ws = new WebSocket(getWsHost(options));
+        let uri = 'wss://realtime.ably.io?';
+        uri += Object.entries(options).map(([key, value]) => `${key}=${value}`).join('&');
+        this.ws = new WebSocket(uri);
     }
 
     listen = (callback) => {
-       this.ws.on('message', msg => callback(JSON.parse(msg)));
+        this.ws.on('message', (msg) => {
+            const message = JSON.parse(msg)
+            callback(message);
+        });
     }
 
-    getChannel = (name) => {
-        return new Channel(name, this);
+    getChannel = (channelName) => {
+        return new Channel(channelName, this);
     }
 
     sendProtocolMessage = (message) => {
@@ -25,8 +24,8 @@ class Ably {
 }
 
 class Channel {
-    constructor(name, ably) {
-        this.name = name;
+    constructor(channelName, ably) {
+        this.name = channelName;
         this.ably = ably;
         this.msgSerial = 0;
     }
@@ -51,8 +50,8 @@ class Channel {
         const message = {
             action: 15,
             channel: this.name,
-            msgSerial: this.msgSerial++,
             messages: [{ data }],
+            msgSerial: this.msgSerial++,
         };
         this.ably.sendProtocolMessage(message);
     }
@@ -61,8 +60,8 @@ class Channel {
         const message = {
             action: 14,
             channel: this.name,
-            msgSerial: this.msgSerial++,
             presence: [{ action: 2 }],
+            msgSerial: this.msgSerial++,
         };
         this.ably.sendProtocolMessage(message);
     }
@@ -71,8 +70,8 @@ class Channel {
         const message = {
             action: 14,
             channel: this.name,
-            msgSerial: this.msgSerial++,
             presence: [{ action: 3 }],
+            msgSerial: this.msgSerial++,
         };
         this.ably.sendProtocolMessage(message);
     }
