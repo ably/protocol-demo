@@ -28,6 +28,8 @@ if (options.heartbeats) {
 
 if (options.clientId) {
     params.clientId = options.clientId;
+} else if (process.env.CLIENTID) {
+    params.clientId = process.env.CLIENTID;
 }
 
 new App(params);
