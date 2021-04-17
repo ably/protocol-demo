@@ -51,11 +51,13 @@ class Channel {
     this.ably.sendProtocolMessage(message);
   };
 
-  publish = (data) => {
+  publish = (eventName, dataPayload) => {
+    const data = dataPayload || eventName;
+    const name = eventName && dataPayload ? eventName : undefined;
     const message = {
       action: 15,
       channel: this.name,
-      messages: [{ data }],
+      messages: [{ name, data }],
     };
     this.ably.sendProtocolMessage(message);
   };
