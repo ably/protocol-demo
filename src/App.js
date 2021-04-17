@@ -5,6 +5,7 @@ const inquirer = require('inquirer');
 const chalk = require('chalk');
 const protocolActions = require('./protocolActions');
 const Ably = require('./Ably');
+const helpMessage = require("./help");
 
 class App {
     constructor(options) {
@@ -22,6 +23,12 @@ class App {
         this.channels = [];
         this.askingQuestion = false;
         this.lastRecievedMessage = null;
+
+        this.showHeartbeats = true;
+        this.showHelpMessage = helpMessage();
+
+        // the welcome banner and help text
+        console.log(this.showHelpMessage);
     }
 
     ask = async (question) => {
@@ -44,6 +51,10 @@ class App {
         // Dont register keypresses if we're asking a question
         if (!this.askingQuestion) {
             switch (key.sequence) {
+                // Help
+                case '?':
+                    console.log(this.showHelpMessage);
+                    break;
                 // Quit
                 case 'q':
                     process.exit();
@@ -76,7 +87,7 @@ class App {
                     const channelName = await this.ask({ type: 'list', name: 'channel', message: 'which channel would you like to publish to?', choices: this.channels.map(channel => channel.name)});
                     const string = await this.ask({ type: 'input', name: "data", message: `enter data to send to ${channelName}`});
                     const channel = this.channels.find(channel => channel.name === channelName);
-                    channel.publish(string);
+                    channel.publish(this.eventName, string);
                     break;
                 }
                 // Message (re-play last message)
@@ -84,17 +95,24 @@ class App {
                     const string = this.lastRecievedMessage || null;
                     if(!string) break;
 
-                    const channelName = await this.ask({ type: 'list', name: 'channel', message: 'which channel would you like to publish to?', choices: this.channels.map(channel => channel.name)});
+                    const channelName = await this.ask({ type: 'list', name: 'channel', message: 'which channel would you like to relay to?', choices: this.channels.map(channel => channel.name)});
                     const channel = this.channels.find(channel => channel.name === channelName);
                     const data = /^{/.test(string) ? JSON.parse(string) : string;
 
-                    channel.publish(data);
+                    channel.publish(this.eventName, data);
                     break;
                 }
                 // Message (event name)
                 case 'n': {
                     const eventName = await this.ask({type: 'input', name: "event name", message: "enter default event name"});
-                    this.eventName = eventName || "data";
+                    this.eventName = eventName || this.eventName || undefined;
+                    console.log("SET", `Event name to [${this.eventName}]`);
+                    break;
+                }
+                // Heartbeat (toggle output)
+                case 'h': {
+                    this.showHeartbeats = !this.showHeartbeats;
+                    console.log("SET", `Show heartbeat messages [${this.showHeartbeats}]`);
                     break;
                 }
                 // Enter presence
@@ -128,6 +146,8 @@ class App {
     onMessageRecieved = (message) => {
         switch (protocolActions[message.action]) {
             case 'HEARTBEAT':
+                if(this.askingQuestion) return;
+                if(!this.showHeartbeats) return;
                 this.logAction(' HEARTBEAT ', chalk.bgGrey.bold);
                 break;
             case 'ACK':
