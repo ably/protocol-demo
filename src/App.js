@@ -4,7 +4,7 @@ const readline = require('readline');
 const inquirer = require('inquirer');
 const chalk = require('chalk');
 const protocolActions = require('./protocolActions');
-const Ably = require('./Ably');
+const { Realtime } = require('ably');
 const helpMessage = require("./help");
 
 class App {
@@ -18,8 +18,18 @@ class App {
         console.clear();
         console.log(options);
 
-        this.ably = new Ably(options);
-        this.ably.listen(this.onMessageRecieved);
+        this.ably = new Realtime.Promise(options);
+
+        // Hook in to ably-js so that we can listen to all protocol messages recieved
+        this.ably.connection.on('connected', () => {
+            const transport = this.ably.connection.connectionManager.activeProtocol.transport;
+            const ablyOnProtocolMessage = transport.onProtocolMessage;
+            transport.onProtocolMessage = (message) => {
+                this.onMessageRecieved(message);
+                ablyOnProtocolMessage.call(transport, message);
+            };
+        });
+
         this.channels = [];
         this.askingQuestion = false;
         this.lastRecievedMessage = null;
@@ -61,9 +71,10 @@ class App {
                 // Attach
                 case 'a': {
                     const channelName = await this.ask({ type: 'input', name: 'channel', message: 'enter channel name'});
-                    const channel = this.ably.getChannel(channelName);
-                    channel.attach();
-                    this.channels.push(channel);
+                    const channel = this.ably.channels.get(channelName);
+                    channel.attach().then(() => {;
+                        this.channels.push(channel);
+                    });
                     break;
                 }
                 // Detach
@@ -83,7 +94,6 @@ class App {
                         console.error('Not attached to any channels');
                         return;
                     }
-
                     const channelName = await this.ask({ type: 'list', name: 'channel', message: 'which channel would you like to publish to?', choices: this.channels.map(channel => channel.name)});
                     const string = await this.ask({ type: 'input', name: "data", message: `enter data to send to ${channelName}`});
                     const channel = this.channels.find(channel => channel.name === channelName);
@@ -122,8 +132,12 @@ class App {
                         return;
                     }
                     const channelName = await this.ask({ type: 'list', name: 'channel', message: 'which channel would you like to enter?', choices: this.channels.map(channel => channel.name)});
-                    const channel = this.channels.find(channel => channel.name === channelName);
-                    channel.enterPresence();
+                    try {
+                        const channel = this.channels.find(channel => channel.name === channelName);
+                        channel.presence.enter();
+                    } catch (err) {
+                        console.error(err);
+                    }
                     break;
                 }
                 // Leave presence
@@ -134,7 +148,7 @@ class App {
                     }
                     const channelName = await this.ask({ type: 'list', name: 'channel', message: 'which channel would you like to leave?', choices: this.channels.map(channel => channel.name)});
                     const channel = this.channels.find(channel => channel.name === channelName);
-                    channel.leavePresence();
+                    channel.presence.leave();
                     break;
                 }
                 default:
@@ -201,19 +215,19 @@ class App {
         message.presence.forEach(presenceMessage => {
             switch (presenceMessage.action) {
                 // PRESENT
-                case 1:
+                case 'present':
                     this.logAction(' PRESENCE ', chalk.bgBlue.bold, `${chalk.blue(presenceMessage.clientId)} is present on ${chalk.magenta(message.channel)}`);
                     break;
                 // ENTER
-                case 2:
+                case 'enter':
                     this.logAction(' PRESENCE ', chalk.bgBlue.bold, `${chalk.blue(presenceMessage.clientId)} has entered ${chalk.magenta(message.channel)}`);
                     break;
                 // LEAVE
-                case 3:
+                case 'leave':
                     this.logAction(' PRESENCE ', chalk.bgBlue.bold, `${chalk.blue(presenceMessage.clientId)} has left ${chalk.magenta(message.channel)}`);
                     break;
                 // UPDATE
-                case 4:
+                case 'update':
                     this.logAction(' PRESENCE ', chalk.bgBlue.bold, `${chalk.blue(presenceMessage.clientId)} has updated their presence on ${chalk.magenta(message.channel)}`);
                     break;
                 default:

@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "ably": "^1.2.9",
     "chalk": "^4.1.0",
     "commander": "^7.2.0",
     "date-fns": "^2.19.0",
