@@ -1,22 +1,57 @@
-const WebSocket = require('ws');
 const format = require('date-fns/format')
-const readline = require('readline');
 const inquirer = require('inquirer');
 const chalk = require('chalk');
 const protocolActions = require('./protocolActions');
 const { Realtime } = require('ably');
 const helpMessage = require("./help");
+const vorpal = require('vorpal')();
+const commands = require('./commands');
+
 
 class App {
     constructor(options) {
-        // Set up the console to listen to key events
-        readline.emitKeypressEvents(process.stdin);
-        process.stdin.setRawMode(true);
-        process.stdin.on('keypress', this.onKeypress);
+        const app = this;
+
+        commands.forEach(registerCommand => registerCommand(vorpal, this));
+
+        vorpal.command("publish <channel> <data>", "publish a message").alias('pub').option('-e, --event <event>').action(function(args, callback) {
+            const channel = app.channels.find(channel => channel.name === args.channel);
+            if (!channel) {
+                console.error(`Not currently attached to ${args.channel}`);
+                callback();
+                return;
+            }
+            try {
+                channel.publish(args.event, args.data).catch(console.error);
+            } catch (err) {
+                console.error(err);
+                callback();
+                return;
+            }
+            callback();
+        });
+
+        vorpal.command("detach <channel>", "detach from a channel").action(function(args, callback) {
+            const channel = app.channels.find(channel => channel.name === args.channel);
+            if (!channel) {
+                console.error(`Not currently attached to ${args.channel}`);
+                callback();
+                return;
+            }
+            channel.detach().then(() => {
+                app.channels = app.channels.filter(channel => channel.name !== args.channel);
+                callback();
+            });
+        });
+
+        vorpal.command("ping", "send a heartbeat to ably").action(function(args, callback) {
+            app.ably.connection.ping();
+            callback();
+        });
+
 
         // Clear the console
         console.clear();
-        console.log(options);
 
         this.ably = new Realtime.Promise(options);
 
@@ -30,6 +65,10 @@ class App {
             };
         });
 
+        this.muted = false;
+        this.timers = [];
+        this.nextTimerId = 0;
+
         this.channels = [];
         this.askingQuestion = false;
         this.lastRecievedMessage = null;
@@ -39,6 +78,8 @@ class App {
 
         // the welcome banner and help text
         console.log(this.showHelpMessage);
+
+        vorpal.delimiter((options.clientId ?? '*') + '@ably ' + chalk.bold.red('⮝') + ' ').show();
     }
 
     ask = async (question) => {
@@ -54,7 +95,19 @@ class App {
     }
 
     logAction = (name, color, append) => {
-        console.log(`${format(new Date(), 'HH:mm:ss')} ${color(name)} ${append ?? ''}`);
+        vorpal.log(`${format(new Date(), 'HH:mm:ss')} ${color(name)} ${append ?? ''}`);
+    }
+
+    registerTimer = (timeout, command) => {
+        this.timers.push({
+            id: this.nextTimerId++,
+            command,
+            timeout,
+        });
+    }
+
+    mute = () => {
+        this.muted = true;
     }
 
     onKeypress = async (_, key) => {
@@ -158,56 +211,58 @@ class App {
     }
 
     onMessageRecieved = (message) => {
-        switch (protocolActions[message.action]) {
-            case 'HEARTBEAT':
-                if(this.askingQuestion) return;
-                if(!this.showHeartbeats) return;
-                this.logAction(' HEARTBEAT ', chalk.bgGrey.bold);
-                break;
-            case 'ACK':
-                this.logAction(' ACK ', chalk.bgCyan.bold, `msgSerial: ${message.msgSerial}`);
-                break;
-            case 'NACK':
-                this.logAction(' NACK ', chalk.bgRed.bold);
-                console.log(message);
-                break;
-            case 'CONNECTED':
-                this.logAction(' CONNECTED ', chalk.bgGreen.bold, `clientId: ${message.connectionDetails.clientId}`);
-                break;
-            case 'CLOSED':
-                this.logAction(' CLOSED ', chalk.bgGray.bold);
-                process.exit();
-            case 'ERROR':
-                this.logAction(' ERROR ', chalk.bgRed.bold);
-                console.log(message);
-                break;
-            case 'ATTACHED':
-                this.logAction(' ATTACHED ', chalk.bgMagenta.bold, `to ${chalk.magenta(message.channel)}`);
-                break;
-            case 'DETACHED':
-                this.channels = this.channels.filter(channel => channel.name !== message.channel);
-                this.logAction(' DETACHED ', chalk.bgYellow.bold, `from ${message.channel}`);
-                break;
-            case 'PRESENCE':
-                this.onPresence(message);
-                break;
-            case 'MESSAGE':
-                message.messages.forEach(msg => {
-                    this.lastRecievedMessage = msg.data;
-                    if (msg.clientId) {
-                        this.logAction(' MESSAGE ', chalk.bgCyan.bold, `from ${chalk.blue(msg.clientId)} on ${chalk.magenta(message.channel)}: "${msg.data}"`);
-                        return;
-                    }
-                    this.logAction(' MESSAGE ', chalk.bgCyan.bold, `from ${chalk.magenta(message.channel)}: "${msg.data}"`);
-                });
-                break;
-            case 'SYNC':
-                this.onPresence(message);
-                break;
-            default:
-                console.error('unrecognised action: ' + message.action);
-                console.log(message);
-                break;
+        if (!this.muted) {
+            switch (protocolActions[message.action]) {
+                case 'HEARTBEAT':
+                    if(this.askingQuestion) return;
+                    if(!this.showHeartbeats) return;
+                    this.logAction(' HEARTBEAT ', chalk.bgGrey.bold);
+                    break;
+                case 'ACK':
+                    this.logAction(' ACK ', chalk.bgCyan.bold, `msgSerial: ${message.msgSerial}`);
+                    break;
+                case 'NACK':
+                    this.logAction(' NACK ', chalk.bgRed.bold);
+                    console.log(message);
+                    break;
+                case 'CONNECTED':
+                    this.logAction(' CONNECTED ', chalk.bgGreen.bold, `clientId: ${message.connectionDetails.clientId}`);
+                    break;
+                case 'CLOSED':
+                    this.logAction(' CLOSED ', chalk.bgGray.bold);
+                    process.exit();
+                case 'ERROR':
+                    this.logAction(' ERROR ', chalk.bgRed.bold);
+                    console.log(message);
+                    break;
+                case 'ATTACHED':
+                    this.logAction(' ATTACHED ', chalk.bgMagenta.bold, `to ${chalk.magenta(message.channel)}`);
+                    break;
+                case 'DETACHED':
+                    this.channels = this.channels.filter(channel => channel.name !== message.channel);
+                    this.logAction(' DETACHED ', chalk.bgYellow.bold, `from ${message.channel}`);
+                    break;
+                case 'PRESENCE':
+                    this.onPresence(message);
+                    break;
+                case 'MESSAGE':
+                    message.messages.forEach(msg => {
+                        this.lastRecievedMessage = msg.data;
+                        if (msg.clientId) {
+                            this.logAction(' MESSAGE ', chalk.bgCyan.bold, `from ${chalk.blue(msg.clientId)} on ${chalk.magenta(message.channel)}: "${msg.data}"`);
+                            return;
+                        }
+                        this.logAction(' MESSAGE ', chalk.bgCyan.bold, `from ${chalk.magenta(message.channel)}: "${msg.data}"`);
+                    });
+                    break;
+                case 'SYNC':
+                    this.onPresence(message);
+                    break;
+                default:
+                    console.error('unrecognised action: ' + message.action);
+                    console.log(message);
+                    break;
+            }
         }
     }
 
