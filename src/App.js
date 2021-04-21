@@ -4,6 +4,7 @@ const readline = require('readline');
 const inquirer = require('inquirer');
 const chalk = require('chalk');
 const protocolActions = require('./protocolActions');
+const help = require('./help');
 const Ably = require('./Ably');
 
 class App {
@@ -15,6 +16,7 @@ class App {
 
         // Clear the console
         console.clear();
+        console.log(help);
 
         this.ably = new Ably(options);
         this.ably.listen(this.onMessageRecieved);
@@ -39,7 +41,7 @@ class App {
     }
 
     onKeypress = async (_, key) => {
-        // Dont register keypresses if we're asking a question
+        // Don't register keypresses if we're asking a question
         if (!this.askingQuestion) {
             switch (key.sequence) {
                 // Quit
