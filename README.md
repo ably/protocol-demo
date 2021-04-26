@@ -1,4 +1,12 @@
-# Protocol Demo
+# Ably Realtime Protocol Demo
+
+## Introduction
+
+The code in this repository was presented by [Owen Pearson](https://github.com/owenpearson) during the Ably Summit week in April 2021 under the title "Using NodeJS to integrate directly with the Ably realtime service", then presented again the following week under the title "Exploring the Ably Protocol".
+
+During Owen's summit presentation he started off by doing some initial exploration of the basics of connecting to the Realtime service using the [websocat](https://github.com/vi/websocat) command-line tool, demonstrating the basics of creating a secure WebSocket connection to the service and presenting an Ably API `key` via the URL query parameter.
+
+Following on from that he then moved to Node.js to build out this codebase from scaffolding he had already put in place.
 
 ## Running locally
 
